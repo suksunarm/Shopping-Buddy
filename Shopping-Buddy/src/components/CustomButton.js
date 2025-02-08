@@ -17,10 +17,15 @@ const styles = StyleSheet.create({
     backgroundColor: "gold",
     padding: 10,
     alignContent: "center",
+    justifyContent:"center",
     borderRadius: 5,
+    width: 300,
+    height: 45,
+    margin: 5,
+    borderRadius: 10
   },
   text: {
-    
+    fontWeight:"bold",
     fontSize: 15,
     textAlign: "center"
   },
