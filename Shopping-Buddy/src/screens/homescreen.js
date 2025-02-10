@@ -7,15 +7,22 @@ import {
   FlatList,
   TouchableOpacity,
   Modal,
+  Switch,
+  Image,
+  Button,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import CustomButton from "../components/CustomButton";
 import Card from "../components/Card";
 import Icon from "react-native-vector-icons/FontAwesome5";
+import CheckBox from "react-native-check-box";
+import {launchImageLibrary } from "react-native-image-picker";
 
 const STORAGE_KEY = "@card_data";
+const BOUGHT_ITEMS_KEY = "@bought_items";
+const COLOR_STATUS_KEY = "@color_status";
 
-const homescreen = ({ navigation }) => {
+const homeScreen = ({ navigation }) => {
   const [Productname, setProductname] = useState("");
   const [Price, setPrice] = useState("");
   const [Errors, setErrors] = useState({
@@ -26,8 +33,13 @@ const homescreen = ({ navigation }) => {
   const [searchKey, setSearchKey] = useState("");
   const [filteredProducts, setFilteredProducts] = useState([]);
   const [isVisible, setIsVisible] = useState(false);
-  const [editId, setEditId] = useState(null); // เก็บ ID ของสินค้าที่ต้องการแก้ไข
-  const [status, setStatus] = useState({}); //เก็บค่าสเตตัสของสินค้าที่ถูกซื้อ
+  const [editId, setEditId] = useState(null);
+  const [status, setStatus] = useState({});
+  const [BoughtItem, setBoughtItem] = useState([]);
+  const [RealPrice, setRealPrice] = useState(0);
+  const [isDarkMode, setIsDarkMode] = useState(false); // สร้าง state คุมโหมด
+  const [category, setCategory] = useState("");
+  const [imageUrl, setImageUrl] = useState(null);
 
   useEffect(() => {
     setFilteredProducts(
@@ -38,160 +50,242 @@ const homescreen = ({ navigation }) => {
   }, [searchKey, Products]);
 
   useEffect(() => {
-    loadCards();
-    const loadColorStatus = async () => {
+    const calculateRealPrice = () => {
+      const totalNotBoughtPrice = Products.reduce(
+        (sum, item) => (!BoughtItem.includes(item.id) ? sum + item.Price : sum),
+        0
+      );
+      setRealPrice(totalNotBoughtPrice);
+    };
+
+    calculateRealPrice();
+  }, [Products, BoughtItem]);
+
+  useEffect(() => {
+    const loadData = async () => {
       try {
-        const storedStatus = await AsyncStorage.getItem('@color_status');
-        if (storedStatus) {
-          setStatus(JSON.parse(storedStatus));
-        }
+        const storedProducts = await AsyncStorage.getItem(STORAGE_KEY);
+        const storedBoughtItems = await AsyncStorage.getItem(BOUGHT_ITEMS_KEY);
+        const storedStatus = await AsyncStorage.getItem(COLOR_STATUS_KEY);
+
+        if (storedProducts) setProducts(JSON.parse(storedProducts));
+        if (storedBoughtItems) setBoughtItem(JSON.parse(storedBoughtItems));
+        if (storedStatus) setStatus(JSON.parse(storedStatus));
       } catch (error) {
-        console.error('Failed to load color status', error);
+        console.error("Failed to load data", error);
       }
     };
-  
-    loadColorStatus();
+
+    loadData();
   }, []);
 
-  const loadCards = async () => {
-    try {
-      const storedCards = await AsyncStorage.getItem(STORAGE_KEY);
-      if (storedCards) {
-        setProducts(JSON.parse(storedCards));
-      }
-    } catch (error) {
-      console.error("Failed to load data", error);
+  useEffect(() => {
+    let filteredList = Products;
+
+    if (category === "Food") {
+      filteredList = Products.filter((product) => product.category === "Food");
+    } else if (category === "Skincare") {
+      filteredList = Products.filter(
+        (product) => product.category === "Skincare"
+      );
     }
-  };
+
+    setFilteredProducts(filteredList);
+  }, [category, Products]);
 
   const validateField = (field, value) => {
     let error = "";
     if (!value) {
       error = "This field is required";
-    } else {
-      if (field === "Price" && isNaN(value)) {
-        //
-        error = "โปรดป้อนตัวเลข";
-      } else if (field === "Price" && Number(value) <= 0) {
-        error = "0";
-      }
+    } else if (field === "Price" && (isNaN(value) || Number(value) <= 0)) {
+      error = "โปรดป้อนตัวเลขที่มีค่าเป็นบวก";
     }
-    setErrors((preErrors) => ({ ...preErrors, [field]: error }));
+    setErrors((prevErrors) => ({ ...prevErrors, [field]: error }));
     return error;
   };
 
-  const addproduct = async () => {
+  const addProduct = async () => {
     const ProductnameError = validateField("Productname", Productname);
     const PriceError = validateField("Price", Price);
-    let updatedProducts;
+
     if (!ProductnameError && !PriceError) {
       setErrors({ Productname: "", Price: "" });
-      
 
+      let updatedProducts;
       if (editId) {
-        // อัปเดตสินค้าเดิม
-
         updatedProducts = Products.map((item) =>
-          item.id === editId ? { ...item, Productname, Price: Number(Price) } : item
+          item.id === editId
+            ? { ...item, Productname, Price: Number(Price) }
+            : item
         );
       } else {
-        const newIndex = Products.length + 1;
         const newCard = {
           id: Date.now().toString(),
-          newIndex,
           Productname,
-          Price:Number(Price),
+          Price: Number(Price),
+          category: category || "Skincare", // เพิ่ม category
+          imageUrl: imageUrl,
         };
         updatedProducts = [newCard, ...Products];
       }
 
       try {
-        if (!updatedProducts || updatedProducts.length === 0) {
-          throw new Error("Data is empty or null"); // ป้องกันการบันทึกค่าที่ว่าง
-        }
-
         await AsyncStorage.setItem(
           STORAGE_KEY,
           JSON.stringify(updatedProducts)
         );
-        setProducts(updatedProducts); // อัพเดตสถานะของ Products
-        setFilteredProducts(updatedProducts); //อัพเดตสถานะของ FilterdProducts
-        setIsVisible(false); // ปิด Modal หลังจากบันทึก
-        setEditId(null); // รีเซ็ตค่า
+        setProducts(updatedProducts);
+        setFilteredProducts(updatedProducts);
+        setIsVisible(false);
+        setEditId(null);
         setProductname("");
         setPrice("");
+        setImageUrl("");
       } catch (error) {
         console.error("Error saving data:", error);
       }
-    } else if (Price < 0) {
-      setErrors({ Price: "โปรดป้อนตัวเลขที่มีค่าเป็นบวก" });
     }
   };
 
   const removeProduct = async (ProductID) => {
     try {
-      let StoredProducts = await AsyncStorage.getItem(STORAGE_KEY); // ดึงสินค้าทั้งหมด
-      let products = StoredProducts ? JSON.parse(StoredProducts) : [];
-      let updatedProducts = products.filter((item) => item.id !== ProductID);
-
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProducts)); // บันทึกค่าที่อัปเดตใหม่
+      const updatedProducts = Products.filter((item) => item.id !== ProductID);
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProducts));
       setProducts(updatedProducts);
       setFilteredProducts(updatedProducts);
-
-      console.log("ลบสินค้าสำเร็จ:", ProductID);
     } catch (error) {
-      console.log("Error removing product", error);
+      console.error("Error removing product", error);
     }
   };
-  
-  const ClearAll = async () =>{
-    try {
-      let StoredProducts = await AsyncStorage.getItem(STORAGE_KEY); // ดึงสินค้าทั้งหมด
-      let products = StoredProducts ? JSON.parse(StoredProducts) : [];
 
-      await AsyncStorage.removeItem(STORAGE_KEY, JSON.stringify()); // บันทึกค่าที่อัปเดตใหม่
+  const clearAll = async () => {
+    try {
+      await AsyncStorage.removeItem(STORAGE_KEY);
+      await AsyncStorage.removeItem(BOUGHT_ITEMS_KEY);
+      await AsyncStorage.removeItem(COLOR_STATUS_KEY);
       setProducts([]);
       setFilteredProducts([]);
-
-      console.log("ลบสินค้าทั้งหมดสำเร็จ:");
+      setBoughtItem([]);
+      setStatus({});
     } catch (error) {
-      console.log("Error removing product", error);
+      console.error("Error clearing data", error);
     }
-  }
+  };
 
   const editProduct = (product) => {
     setProductname(product.Productname);
-    setPrice(product.Price.toString()); // แปลงเป็น String เพื่อใช้ใน TextInput
-    setEditId(product.id); // บันทึก ID ของสินค้าที่ต้องแก้ไข
-    setIsVisible(true); // ทำให้ Modal แสดงขึ้น
+    setPrice(product.Price.toString());
+    setEditId(product.id);
+    setIsVisible(true);
   };
 
   const handleBuy = async (id) => {
-    setStatus((prevColors) => {
-      // ตรวจสอบว่า prevColors[id] มีค่าอะไร
-      const updatedStatus =  {
-        ...prevColors,
-        [id]: "#bcda60", // ตั้งค่าสีใหม่ให้กับ ID
-      };
-      console.log("prevColors ก่อนอัปเดต:", prevColors);
-      AsyncStorage.setItem('@color_status' , JSON.stringify(updatedStatus));
-      return updatedStatus;
-    });
+    const updatedBoughtItems = BoughtItem.includes(id)
+      ? BoughtItem.filter((item) => item !== id)
+      : [...BoughtItem, id];
+
+    const updatedStatus = {
+      ...status,
+      [id]: BoughtItem.includes(id) ? "white" : "#bcda60",
+    };
+
+    try {
+      await AsyncStorage.setItem(
+        BOUGHT_ITEMS_KEY,
+        JSON.stringify(updatedBoughtItems)
+      );
+      await AsyncStorage.setItem(
+        COLOR_STATUS_KEY,
+        JSON.stringify(updatedStatus)
+      );
+      setBoughtItem(updatedBoughtItems);
+      setStatus(updatedStatus);
+    } catch (error) {
+      console.error("Error updating bought items or status", error);
+    }
   };
+
+  const toggleTheme = () => {
+    setIsDarkMode((prev) => !prev); // สลับค่า true/false
+  };
+
+  // ฟังก์ชันเรียกแกลเลอรี
+  const openGallery = () => {
+    launchImageLibrary(
+      {
+        mediaType: "photo",
+        quality: 1, // กำหนดคุณภาพของภาพ (0-1)
+      },
+      (response) => {
+        if (response.didCancel) {
+          console.log("User cancelled gallery picker");
+        } else if (response.errorCode) {
+          console.log("Gallery Error: ", response.errorCode);
+        } else {
+          const source = { uri: response.assets[0].uri }; // เอาภาพจากผลลัพธ์
+          setImageUrl(source.uri);
+        }
+      }
+    );
+  };
+
+
   return (
-    <View style={styles.ViewStyle}>
+    <View
+      style={[
+        styles.ViewStyle,
+        { backgroundColor: isDarkMode ? "#121212" : "#fff" },
+      ]}
+    >
       <View style={{ alignItems: "center" }}>
-        <Text style={styles.Title}>จัดการรายการสินค้า</Text>
+        <Text style={[styles.Title, { color: isDarkMode ? "#fff" : "#000" }]}>
+          จัดการรายการสินค้า
+        </Text>
+
+        <Text
+          style={[
+            styles.DarkModeText,
+            { color: isDarkMode ? "#fff" : "#000", fontSize: 18 },
+          ]}
+        >
+          Toggle Theme :
+        </Text>
+        <Switch value={isDarkMode} onValueChange={toggleTheme}></Switch>
       </View>
 
       <TextInput
-        style={styles.Search}
+        style={[
+          styles.Search,
+          { color: isDarkMode ? "#fff" : "#000", fontSize: 18 },
+        ]}
         placeholder="Search by Name"
+        placeholderTextColor={isDarkMode ? "#fff" : "#000"}
         value={searchKey}
         onChangeText={setSearchKey}
       />
 
-      {/* <View style={styles.NavContainer}></View> */}
+      <View style={{ flexDirection: "row", justifyContent: "center" }}>
+        <TouchableOpacity
+          style={styles.category}
+          onPress={() => setCategory("All")}
+        >
+          <Text style={styles.categoryText}>All</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.category}
+          onPress={() => setCategory("Food")}
+        >
+          <Text style={styles.categoryText}>Food</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.category}
+          onPress={() => setCategory("Skincare")}
+        >
+          <Text style={styles.categoryText}>Skincare</Text>
+        </TouchableOpacity>
+      </View>
 
       <View style={styles.Container}>
         <Modal transparent={true} animationType="fade" visible={isVisible}>
@@ -220,20 +314,40 @@ const homescreen = ({ navigation }) => {
               {Errors.Price ? (
                 <Text style={styles.errorText}>{Errors.Price}</Text>
               ) : null}
+
+              <Text style={styles.TextInput}>
+                เลือกรูปภาพจากแกลอรี่
+              </Text>
+              <Button title="Open Gallery" onPress={openGallery} />
+
+              <View style={styles.checkboxContainer}>
+                <CheckBox
+                  style={styles.checkbox}
+                  isChecked={category === "Food"}
+                  onClick={() => setCategory("Food")}
+                />
+                <Text>Food</Text>
+                <CheckBox
+                  style={styles.checkbox}
+                  isChecked={category === "Skincare"}
+                  onClick={() => setCategory("Skincare")}
+                />
+                <Text>Skincare</Text>
+              </View>
+
               <View style={{ alignItems: "center" }}>
-                <TouchableOpacity style={styles.Button} onPress={addproduct}>
+                <TouchableOpacity style={styles.Button} onPress={addProduct}>
                   <Text style={styles.ButtonText}>CONFIRM</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={styles.Button}
+                  style={styles.CancleButton}
                   onPress={() => {
                     setIsVisible(false);
-                    setProductname("")
-                    setPrice("")
+                    setProductname("");
+                    setPrice("");
                   }}
                 >
-                  {/*<Text style={styles.OkButtonText}>คลิ้กเพื่อเข้าสู่ Isekai!!!</Text>*/}
                   <Icon name="door-open" size={36} color="white"></Icon>
                 </TouchableOpacity>
               </View>
@@ -245,10 +359,11 @@ const homescreen = ({ navigation }) => {
           data={filteredProducts}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            //<TouchableOpacity onPress={() => removeProduct(item.id)}></TouchableOpacity>
             <Card
-              Productname={`Product ${item.newIndex}:  ${item.Productname}`}
-              Price={item.Price}
+              Productname={`Name : ${item.Productname}`}
+              Price={`Price : ${item.Price}฿`}
+              category={`Category : ${item.category}`}
+              ImageUrl={item.imageUrl}
               Ondelete={() => removeProduct(item.id)}
               OnEdit={() => editProduct(item)}
               backgroundColor={status[item.id] || "white"}
@@ -256,7 +371,6 @@ const homescreen = ({ navigation }) => {
             />
           )}
           contentContainerStyle={styles.cardList}
-          
         />
       </View>
       <View style={{ alignItems: "center", marginBottom: 15 }}>
@@ -269,20 +383,23 @@ const homescreen = ({ navigation }) => {
 
         <CustomButton
           title="CLEAR ALL"
-          onPress={() => ClearAll()}
+          onPress={clearAll}
           backgroundColor="#c0004e"
           color="white"
         />
       </View>
 
       <Text
-        style={{
-          fontSize: 20,
-          fontWeight: "bold",
-          marginLeft: 25,
-          marginBottom: 15,
-        }}
-      >{`ผลรวมราคาของสินค้า : `}</Text>
+        style={[
+          {
+            fontSize: 20,
+            fontWeight: "bold",
+            marginLeft: 25,
+            marginBottom: 15,
+          },
+          { color: isDarkMode ? "#fff" : "#000", fontSize: 18 },
+        ]}
+      >{`SUM OF PRODUCTS(Not Paid) : ${RealPrice}฿`}</Text>
     </View>
   );
 };
@@ -339,29 +456,27 @@ const styles = StyleSheet.create({
     color: "red",
     position: "relative",
     left: 45,
-    top: 2.5
+    top: 2.5,
   },
 
   cardList: {
     marginTop: 20,
   },
 
-  ActionButton: {
-    backgroundColor: "#ff5252",
-    justifyContent: "center",
-    alignItems: "flex-end",
-    height: "100%",
-    paddingHorizontal: 20,
-  },
-
-  ActionText: {
-    color: "#fff",
-    fontSize: 20,
-    fontWeight: "bold",
-  },
-
   Button: {
     backgroundColor: "#add237",
+    borderColor: "gray",
+    borderWidth: 2,
+    marginTop: 10,
+    marginBottom: "10",
+    borderRadius: 15,
+    width: 120,
+    height: 45,
+    justifyContent: "center",
+  },
+
+  CancleButton: {
+    backgroundColor: "red",
     borderColor: "gray",
     borderWidth: 2,
     marginTop: 10,
@@ -403,12 +518,69 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 20,
     alignItems: "center",
-    elevation: 20, //เงาด้านหลัง
+    elevation: 20,
   },
 
   Addproductbutton: {
     fontWeight: "bold",
   },
+
+  DarkMode: {
+    backgroundColor: "black",
+    padding: 10,
+    alignContent: "center",
+    justifyContent: "center",
+    borderRadius: 5,
+    width: 110,
+    height: 45,
+    margin: 5,
+    borderRadius: 40,
+  },
+
+  DarkModeText: {
+    fontWeight: "bold",
+    fontSize: 15,
+    textAlign: "center",
+    color: "black",
+  },
+
+  checkboxContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    margin: 10,
+  },
+
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 2,
+    borderColor: "#0084f3",
+    borderRadius: 4,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "transparent",
+    marginHorizontal: 12,
+  },
+
+  category: {
+    backgroundColor: "purple",
+    padding: 10,
+    alignContent: "center",
+    justifyContent: "center",
+    borderRadius: 5,
+    width: 75,
+    height: 40,
+    margin: 5,
+    borderRadius: 10,
+  },
+
+  categoryText: {
+    fontWeight: "bold",
+    fontSize: 15,
+    textAlign: "center",
+    color: "white",
+  },
 });
 
-export default homescreen;
+export default homeScreen;

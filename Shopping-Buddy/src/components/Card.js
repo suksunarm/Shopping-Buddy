@@ -1,14 +1,18 @@
 import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity , Image } from "react-native";
 import Icon from "react-native-vector-icons/FontAwesome5";
 
-const Card = ({ Productname, Price, Ondelete, OnEdit , OnBuy , backgroundColor}) => {
+const Card = ({ Productname, Price, category , ImageUrl ,Ondelete, OnEdit , OnBuy , backgroundColor }) => {
   console.log("Card backgroundColor:", backgroundColor); // ตรวจสอบค่าที่ส่งมา
+  
+  
   return (
     <View style={[styles.card, {backgroundColor}]}>
+       <Image source={{ uri: ImageUrl }} style={styles.image} />  
       <Text style={styles.Productname}>{Productname}</Text>
       <Text style={styles.Price}>{Price}</Text>
-
+      <Text style={styles.productText}>{category}</Text> 
+    
       <TouchableOpacity onPress={OnBuy}>
         <Icon
           name="credit-card"
@@ -82,7 +86,13 @@ const styles = StyleSheet.create({
     left: 150,
     bottom: -2
     
-  }
+  },
+  image: {
+    width: 100,  // ปรับขนาดภาพ
+    height: 100,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
 });
 
 export default Card;
